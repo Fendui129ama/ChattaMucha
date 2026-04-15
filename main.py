@@ -682,3 +682,60 @@ def compute_capsule_id(draft: Dict[str, Any], open_at: Optional[int] = None) -> 
         bounty_wei=str(draft["bounty_wei"]),
         content_hash_hex=str(draft["content_hash_hex"]),
         open_at=open_at,
+        final_earliest_at=int(draft["final_earliest_at"]),
+        final_latest_at=int(draft["final_latest_at"]),
+        challenge_latest_at=int(draft["challenge_latest_at"]),
+        steward_quorum=int(draft["steward_quorum"]),
+    )
+    kind, hx = _keccak_or_placeholder(packed)
+    return {"hash_kind": kind, "capsule_id_hex": "0x" + hx, "open_at": open_at, "packed_bytes": len(packed)}
+
+
+class ChattaMuchaHandler(http.server.BaseHTTPRequestHandler):
+    server_version = "ChattaMuchaHTTP/1.0"
+
+    def _db(self) -> Db:
+        return self.server.db  # type: ignore[attr-defined]
+
+    def _route(self) -> Tuple[str, Dict[str, str]]:
+        u = urllib.parse.urlsplit(self.path)
+        path = u.path
+        qs = dict(urllib.parse.parse_qsl(u.query, keep_blank_values=True))
+        return path, qs
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        # quieter than default, still includes essentials
+        sys.stdout.write("[%s] %s\n" % (_dt.datetime.now().strftime("%H:%M:%S"), (fmt % args)))
+
+    def _handle_api_error(self, e: ApiError) -> None:
+        _send_json(
+            self,
+            e.status,
+            {
+                "ok": False,
+                "error": {"code": e.code, "message": e.message, "details": e.details},
+                "at": _now_utc(),
+            },
+        )
+
+    def _handle_unexpected(self, e: Exception) -> None:
+        _send_json(
+            self,
+            500,
+            {
+                "ok": False,
+                "error": {"code": "internal", "message": "Unexpected error", "details": {"type": type(e).__name__}},
+                "at": _now_utc(),
+            },
+        )
+
+    def do_GET(self) -> None:
+        try:
+            path, qs = self._route()
+            if path.startswith("/api/"):
+                self._api_get(path, qs)
+                return
+            self._serve_ui(path)
+        except ApiError as e:
+            self._handle_api_error(e)
+        except Exception as e:
