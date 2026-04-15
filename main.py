@@ -454,3 +454,60 @@ def _checksum_address_if_possible(addr: str) -> Dict[str, Any]:
             "input": addr,
             "checksum": raw,
             "kind": "lowercase",
+            "keccak_available": False,
+        }
+
+
+def _u256(x: Union[str, int], field: str) -> int:
+    try:
+        if isinstance(x, str):
+            x = x.strip()
+            if x.startswith("0x") or x.startswith("0X"):
+                v = int(x, 16)
+            else:
+                v = int(x, 10)
+        else:
+            v = int(x)
+    except Exception:
+        _raise(400, "bad_int", f"{field} must be integer-like", field=field)
+    if v < 0 or v >= 2**256:
+        _raise(400, "bad_int", f"{field} out of uint256 range", field=field)
+    return v
+
+
+def _u64(x: Union[str, int], field: str) -> int:
+    v = _u256(x, field)
+    if v >= 2**64:
+        _raise(400, "bad_int", f"{field} out of uint64 range", field=field)
+    return v
+
+
+def _u32(x: Union[str, int], field: str) -> int:
+    v = _u256(x, field)
+    if v >= 2**32:
+        _raise(400, "bad_int", f"{field} out of uint32 range", field=field)
+    return v
+
+
+def _pack_uint(v: int, nbytes: int) -> bytes:
+    return int(v).to_bytes(nbytes, "big", signed=False)
+
+
+def abi_encode_packed_capsule_id(
+    owner: str,
+    asset: str,
+    bounty_wei: Union[str, int],
+    content_hash_hex: str,
+    open_at: Union[str, int],
+    final_earliest_at: Union[str, int],
+    final_latest_at: Union[str, int],
+    challenge_latest_at: Union[str, int],
+    steward_quorum: Union[str, int],
+) -> bytes:
+    """
+    Mirrors Solidity:
+      keccak256(abi.encodePacked(owner, asset, bounty, contentHash, openAt, finalEarliestAt, finalLatestAt, challengeLatestAt, stewardQuorum))
+    with types:
+      address,address,uint256,bytes32,uint64,uint64,uint64,uint64,uint32
+    """
+    b_owner = _as_address_bytes(owner, "owner")
