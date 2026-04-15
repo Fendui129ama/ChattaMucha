@@ -568,3 +568,60 @@ def function_selector(signature: str) -> bytes:
 
 def encode_calldata(signature: str, arg_types: List[str], arg_values: List[Any]) -> Dict[str, Any]:
     if len(arg_types) != len(arg_values):
+        _raise(400, "bad_input", "arg_types and arg_values length mismatch")
+    sel, kind = function_selector(signature)
+    words = []
+    for i, (t, v) in enumerate(zip(arg_types, arg_values)):
+        words.append(abi_encode_single(v, t, f"arg[{i}]"))
+    data = sel + b"".join(words)
+    return {
+        "selector_hash_kind": kind,
+        "signature": signature,
+        "selector_hex": "0x" + sel.hex(),
+        "calldata_hex": "0x" + data.hex(),
+        "calldata_bytes": len(data),
+    }
+
+
+def _abi_encode_struct(types_: List[str], values_: List[Any]) -> bytes:
+    # for our fixed-only usage, ABI encoding == concatenated 32-byte words
+    if len(types_) != len(values_):
+        _raise(400, "bad_input", "types/values mismatch")
+    out = []
+    for i, (t, v) in enumerate(zip(types_, values_)):
+        out.append(abi_encode_single(v, t, f"struct[{i}]"))
+    return b"".join(out)
+
+
+def _bytes32_hex(b: bytes) -> str:
+    if len(b) != 32:
+        _raise(500, "internal", "expected 32-byte value")
+    return "0x" + b.hex()
+
+
+def futurino_capsule_open_digest(
+    domain_salt_hex: str,
+    owner: str,
+    asset: str,
+    bounty: Union[str, int],
+    content_hash_hex: str,
+    final_earliest_at: Union[str, int],
+    final_latest_at: Union[str, int],
+    challenge_latest_at: Union[str, int],
+    steward_quorum: Union[str, int],
+    owner_nonce: Union[str, int],
+    chain_id: Union[str, int],
+    verifying_contract: str,
+) -> Dict[str, Any]:
+    """
+    Mirrors Solidity:
+      bytes32 structHash = keccak256(abi.encode(TYPEHASH, ...fields..., ownerNonce, chainId, verifyingContract));
+      digest = keccak256("\x19\x01" || DOMAIN_SALT || structHash);
+
+    Note: DOMAIN_SALT is a bytes32 in Ox_Futurino.
+    """
+    domain_salt = _as_bytes_exact(domain_salt_hex, 32, "domain_salt_hex")
+
+    type_str = (
+        "CapsuleOpen(address owner,address asset,uint256 bounty,bytes32 contentHash,uint64 finalEarliestAt,uint64 finalLatestAt,uint64 challengeLatestAt,uint32 stewardQuorum,uint256 ownerNonce,uint256 chainId,address verifyingContract)"
+    )
