@@ -796,3 +796,60 @@ class ChattaMuchaHandler(http.server.BaseHTTPRequestHandler):
             }
             cfg["verifying_contract_checksum"] = _checksum_address_if_possible(cfg["verifying_contract"])
             _send_json(self, 200, {"ok": True, "config": cfg})
+            return
+
+        if path == "/api/random":
+            # generates user-facing random values for convenience
+            owner = "0x" + secrets.token_hex(20)
+            asset = "0x" + "00" * 20
+            content = secrets.token_bytes(32)
+            hk, chx = _keccak_or_placeholder(content)
+            content_hash = "0x" + chx
+            now = int(time.time())
+            final_earliest = now + 1800
+            final_latest = now + 6 * 3600 + secrets.randbelow(2700)
+            challenge_latest = final_earliest + 600 + secrets.randbelow(max(1, final_latest - final_earliest - 600))
+            quorum = 1 + secrets.randbelow(3)
+            bounty = str(10**15 + secrets.randbelow(10**15))
+            _send_json(
+                self,
+                200,
+                {
+                    "ok": True,
+                    "note": f"content hashing kind: {hk}",
+                    "owner_address": owner,
+                    "asset_address": asset,
+                    "bounty_wei": bounty,
+                    "content_hash_hex": content_hash,
+                    "final_earliest_at": final_earliest,
+                    "final_latest_at": final_latest,
+                    "challenge_latest_at": challenge_latest,
+                    "steward_quorum": quorum,
+                },
+            )
+            return
+
+        if path == "/api/codec/selector":
+            sig = (qs.get("signature") or "").strip()
+            if not sig:
+                _raise(400, "bad_input", "signature required")
+            sel, kind = function_selector(sig)
+            _send_json(
+                self,
+                200,
+                {"ok": True, "signature": sig, "selector_hex": "0x" + sel.hex(), "selector_hash_kind": kind},
+            )
+            return
+
+        if path == "/api/codec/capsule_id":
+            did = (qs.get("draft_id") or "").strip()
+            if not did:
+                _raise(400, "bad_input", "draft_id required")
+            draft = self._db().get_draft(did)
+            open_at = _safe_int(qs.get("open_at"), int(time.time()))
+            cid = compute_capsule_id(draft, open_at=open_at)
+            _send_json(self, 200, {"ok": True, "draft_id": did, "capsule_id": cid})
+            return
+
+        if path == "/api/eip712/capsule_open_digest":
+            # compute digest for openCapsuleWithSig* helpers
