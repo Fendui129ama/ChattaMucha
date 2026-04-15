@@ -169,3 +169,60 @@ class Db:
                   asset_address TEXT NOT NULL,
                   bounty_wei TEXT NOT NULL,
                   content_hash_hex TEXT NOT NULL,
+                  final_earliest_at INTEGER NOT NULL,
+                  final_latest_at INTEGER NOT NULL,
+                  challenge_latest_at INTEGER NOT NULL,
+                  steward_quorum INTEGER NOT NULL,
+                  notes TEXT NOT NULL
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_kv (
+                  k TEXT PRIMARY KEY,
+                  v TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS activity_log (
+                  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                  at TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  capsule_id TEXT NOT NULL,
+                  payload_json TEXT NOT NULL
+                );
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_activity_capsule ON activity_log(capsule_id, seq);")
+            self._conn.commit()
+
+    def upsert_draft(self, draft: Dict[str, Any]) -> Dict[str, Any]:
+        now = _now_utc()
+        draft_id = str(draft.get("id") or "")
+        if not draft_id:
+            draft_id = "d_" + _b64url(secrets.token_bytes(18))
+        owner = str(draft.get("owner_address") or "")
+        asset = str(draft.get("asset_address") or "")
+        bounty = str(draft.get("bounty_wei") or "0")
+        chash = str(draft.get("content_hash_hex") or "")
+        fe = _safe_int(draft.get("final_earliest_at"), 0)
+        fl = _safe_int(draft.get("final_latest_at"), 0)
+        cl = _safe_int(draft.get("challenge_latest_at"), 0)
+        q = _safe_int(draft.get("steward_quorum"), 0)
+        notes = str(draft.get("notes") or "")
+
+        if not owner or not asset or not chash:
+            _raise(400, "bad_input", "Missing required fields", required=["owner_address", "asset_address", "content_hash_hex"])
+        if q <= 0:
+            _raise(400, "bad_input", "steward_quorum must be > 0")
+        if fe <= 0 or fl <= 0 or cl <= 0:
+            _raise(400, "bad_input", "Time fields must be positive unix timestamps")
+        if not (fe < fl and fe < cl <= fl):
+            _raise(400, "bad_input", "Invalid time window ordering")
+
+        with self._lock:
+            cur = self._conn.cursor()
