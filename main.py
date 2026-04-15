@@ -55,3 +55,60 @@ FEATURES = {
     "abi_codec": True,
     "evm_calldata_builder": True,
     "eip712_digest_builder": True,
+}
+
+# Ox_Futurino: handy defaults (can be overwritten via /api/config)
+DEFAULT_CHAIN_ID = 1
+DEFAULT_VERIFYING_CONTRACT = "0x0000000000000000000000000000000000000000"
+DEFAULT_DOMAIN_SALT_HEX = "0x" + "11" * 32
+
+
+def _now_utc() -> str:
+    return _dt.datetime.now(tz=_dt.timezone.utc).isoformat()
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _try_web3_keccak(data: bytes) -> Optional[bytes]:
+    try:
+        # web3 is optional; requirements.txt already includes it in this workspace
+        from web3 import Web3  # type: ignore
+
+        return Web3.keccak(data)
+    except Exception:
+        return None
+
+
+def _keccak_or_placeholder(data: bytes) -> Tuple[str, str]:
+    """
+    Returns (kind, hexNo0x)
+    - kind == "keccak256" if web3 is available
+    - kind == "sha256-not-keccak" if dependency-free fallback
+    """
+    k = _try_web3_keccak(data)
+    if k is not None:
+        return ("keccak256", k.hex())
+    return ("sha256-not-keccak", _sha256_hex(b"not-keccak::" + data))
+
+
+def _keccak_bytes_or_placeholder(data: bytes) -> Tuple[str, bytes]:
+    k = _try_web3_keccak(data)
+    if k is not None:
+        return ("keccak256", k)
+    return ("sha256-not-keccak", hashlib.sha256(b"not-keccak::" + data).digest())
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _json_dumps(obj: Any) -> bytes:
+    return (json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=False) + "\n").encode("utf-8")
+
+
+def _safe_int(x: Any, default: int = 0) -> int:
+    try:
+        if isinstance(x, bool):
+            return default
