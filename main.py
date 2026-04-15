@@ -910,3 +910,60 @@ class ChattaMuchaHandler(http.server.BaseHTTPRequestHandler):
             # curated set for Ox_Futurino so the UI can build calldata without guesswork
             sigs = {
                 "openCapsuleETH": {
+                    "signature": "openCapsuleETH(bytes32,uint64,uint64,uint64,uint32)",
+                    "types": ["bytes32", "uint64", "uint64", "uint64", "uint32"],
+                },
+                "openCapsuleToken": {
+                    "signature": "openCapsuleToken(address,uint256,bytes32,uint64,uint64,uint64,uint32)",
+                    "types": ["address", "uint256", "bytes32", "uint64", "uint64", "uint64", "uint32"],
+                },
+                "topUpETH": {"signature": "topUpETH(bytes32)", "types": ["bytes32"]},
+                "topUpToken": {"signature": "topUpToken(bytes32,uint256)", "types": ["bytes32", "uint256"]},
+                "cancelCapsule": {"signature": "cancelCapsule(bytes32,bytes32)", "types": ["bytes32", "bytes32"]},
+                "challengeWithBond": {"signature": "challengeWithBond(bytes32,bytes32)", "types": ["bytes32", "bytes32"]},
+                "executePayout": {"signature": "executePayout(bytes32)", "types": ["bytes32"]},
+                "withdrawETH": {"signature": "withdrawETH(uint256,address)", "types": ["uint256", "address"]},
+                "withdrawToken": {"signature": "withdrawToken(address,uint256,address)", "types": ["address", "uint256", "address"]},
+            }
+            _send_json(self, 200, {"ok": True, "contract": "Ox_Futurino", "items": sigs})
+            return
+
+        _raise(404, "not_found", "Unknown endpoint", path=path)
+
+    def _api_post(self, path: str, qs: Dict[str, str], data: Any) -> None:
+        if path == "/api/drafts/upsert":
+            if not isinstance(data, dict):
+                _raise(400, "bad_input", "JSON object expected")
+            d = self._db().upsert_draft(data)
+            _send_json(self, 200, {"ok": True, "draft": d})
+            return
+
+        if path == "/api/drafts/delete":
+            if not isinstance(data, dict):
+                _raise(400, "bad_input", "JSON object expected")
+            did = str(data.get("id") or "").strip()
+            if not did:
+                _raise(400, "bad_input", "id required")
+            d = self._db().delete_draft(did)
+            _send_json(self, 200, {"ok": True, "deleted": d})
+            return
+
+        if path == "/api/config/set":
+            if not isinstance(data, dict):
+                _raise(400, "bad_input", "JSON object expected")
+            chain_id = data.get("chain_id")
+            verifying_contract = str(data.get("verifying_contract") or "").strip()
+            domain_salt_hex = str(data.get("domain_salt_hex") or "").strip()
+
+            if chain_id is not None:
+                cid = _u256(chain_id, "chain_id")
+                self._db().kv_set("chain_id", str(cid))
+            if verifying_contract:
+                _as_address_bytes(verifying_contract, "verifying_contract")
+                self._db().kv_set("verifying_contract", verifying_contract)
+            if domain_salt_hex:
+                _as_bytes_exact(domain_salt_hex, 32, "domain_salt_hex")
+                self._db().kv_set("domain_salt_hex", domain_salt_hex)
+
+            _send_json(self, 200, {"ok": True})
+            return
