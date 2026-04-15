@@ -226,3 +226,60 @@ class Db:
 
         with self._lock:
             cur = self._conn.cursor()
+            cur.execute("SELECT id FROM capsule_drafts WHERE id = ?;", (draft_id,))
+            exists = cur.fetchone() is not None
+            if not exists:
+                cur.execute(
+                    """
+                    INSERT INTO capsule_drafts
+                    (id, created_at, updated_at, owner_address, asset_address, bounty_wei, content_hash_hex,
+                     final_earliest_at, final_latest_at, challenge_latest_at, steward_quorum, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (draft_id, now, now, owner, asset, bounty, chash, fe, fl, cl, q, notes),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE capsule_drafts
+                      SET updated_at = ?,
+                          owner_address = ?,
+                          asset_address = ?,
+                          bounty_wei = ?,
+                          content_hash_hex = ?,
+                          final_earliest_at = ?,
+                          final_latest_at = ?,
+                          challenge_latest_at = ?,
+                          steward_quorum = ?,
+                          notes = ?
+                      WHERE id = ?;
+                    """,
+                    (now, owner, asset, bounty, chash, fe, fl, cl, q, notes, draft_id),
+                )
+            self._conn.commit()
+
+        return self.get_draft(draft_id)
+
+    def get_draft(self, draft_id: str) -> Dict[str, Any]:
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("SELECT * FROM capsule_drafts WHERE id = ?;", (draft_id,))
+            row = cur.fetchone()
+        if row is None:
+            _raise(404, "not_found", "Draft not found", id=draft_id)
+        return dict(row)
+
+    def list_drafts(self, limit: int = 50) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(limit), 500))
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("SELECT * FROM capsule_drafts ORDER BY updated_at DESC LIMIT ?;", (limit,))
+            rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_draft(self, draft_id: str) -> Dict[str, Any]:
+        d = self.get_draft(draft_id)
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("DELETE FROM capsule_drafts WHERE id = ?;", (draft_id,))
+            self._conn.commit()
