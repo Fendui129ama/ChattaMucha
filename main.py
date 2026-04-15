@@ -853,3 +853,60 @@ class ChattaMuchaHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/eip712/capsule_open_digest":
             # compute digest for openCapsuleWithSig* helpers
+            did = (qs.get("draft_id") or "").strip()
+            owner = (qs.get("owner") or "").strip()
+            owner_nonce = (qs.get("owner_nonce") or "").strip() or "0"
+            bounty = (qs.get("bounty_wei") or "").strip()
+            db = self._db()
+            chain_id = _safe_int(qs.get("chain_id") or db.kv_get("chain_id", str(DEFAULT_CHAIN_ID)) or str(DEFAULT_CHAIN_ID), DEFAULT_CHAIN_ID)
+            verifying_contract = (qs.get("verifying_contract") or db.kv_get("verifying_contract", DEFAULT_VERIFYING_CONTRACT) or DEFAULT_VERIFYING_CONTRACT).strip()
+            domain_salt_hex = (qs.get("domain_salt_hex") or db.kv_get("domain_salt_hex", DEFAULT_DOMAIN_SALT_HEX) or DEFAULT_DOMAIN_SALT_HEX).strip()
+
+            if did:
+                draft = self._db().get_draft(did)
+                if not owner:
+                    owner = str(draft["owner_address"])
+                if not bounty:
+                    bounty = str(draft["bounty_wei"])
+                asset = str(draft["asset_address"])
+                digest = futurino_capsule_open_digest(
+                    domain_salt_hex=domain_salt_hex,
+                    owner=owner,
+                    asset=asset,
+                    bounty=bounty,
+                    content_hash_hex=str(draft["content_hash_hex"]),
+                    final_earliest_at=int(draft["final_earliest_at"]),
+                    final_latest_at=int(draft["final_latest_at"]),
+                    challenge_latest_at=int(draft["challenge_latest_at"]),
+                    steward_quorum=int(draft["steward_quorum"]),
+                    owner_nonce=owner_nonce,
+                    chain_id=chain_id,
+                    verifying_contract=verifying_contract,
+                )
+                _send_json(
+                    self,
+                    200,
+                    {
+                        "ok": True,
+                        "draft_id": did,
+                        "input": {
+                            "owner": owner,
+                            "asset": asset,
+                            "bounty_wei": bounty,
+                            "owner_nonce": str(owner_nonce),
+                            "chain_id": chain_id,
+                            "verifying_contract": verifying_contract,
+                            "domain_salt_hex": domain_salt_hex,
+                        },
+                        "digest": digest,
+                    },
+                )
+                return
+
+            # non-draft mode
+            _raise(400, "bad_input", "draft_id required (for now)")
+
+        if path == "/api/contract/signatures":
+            # curated set for Ox_Futurino so the UI can build calldata without guesswork
+            sigs = {
+                "openCapsuleETH": {
