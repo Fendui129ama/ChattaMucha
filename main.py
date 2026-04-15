@@ -967,3 +967,60 @@ class ChattaMuchaHandler(http.server.BaseHTTPRequestHandler):
 
             _send_json(self, 200, {"ok": True})
             return
+
+        if path == "/api/capsule/preview":
+            if not isinstance(data, dict):
+                _raise(400, "bad_input", "JSON object expected")
+            did = str(data.get("draft_id") or "").strip()
+            if not did:
+                _raise(400, "bad_input", "draft_id required")
+            draft = self._db().get_draft(did)
+            open_at = _safe_int(data.get("open_at"), int(time.time()))
+            cid = compute_capsule_id(draft, open_at=open_at)
+            payload = {
+                "draft": draft,
+                "capsule_id": cid,
+                "contract": {
+                    "file": "contracts/Ox_Futurino.sol",
+                    "contract_name": "Ox_Futurino",
+                    "note": "For real capsuleId, compute keccak256(abi.encodePacked(...)) exactly as contract does.",
+                },
+            }
+            self._db().log("preview", cid["capsule_id_hex"], {"draft_id": did, "open_at": open_at, "hash_kind": cid["hash_kind"]})
+            _send_json(self, 200, {"ok": True, "preview": payload})
+            return
+
+        if path == "/api/codec/calldata":
+            if not isinstance(data, dict):
+                _raise(400, "bad_input", "JSON object expected")
+            signature = str(data.get("signature") or "").strip()
+            types_ = data.get("types") or []
+            values_ = data.get("values") or []
+            if not signature or not isinstance(types_, list) or not isinstance(values_, list):
+                _raise(400, "bad_input", "signature, types[], values[] required")
+            r = encode_calldata(signature, [str(x) for x in types_], list(values_))
+            _send_json(self, 200, {"ok": True, "result": r})
+            return
+
+        if path == "/api/codec/contract_call_from_draft":
+            """
+            Builds calldata for common calls using a saved draft.
+            Payload:
+              { draft_id, method: "openCapsuleETH"|"openCapsuleToken", open_at?, token?, bounty_wei? }
+            """
+            if not isinstance(data, dict):
+                _raise(400, "bad_input", "JSON object expected")
+            did = str(data.get("draft_id") or "").strip()
+            method = str(data.get("method") or "").strip()
+            if not did or not method:
+                _raise(400, "bad_input", "draft_id and method required")
+            draft = self._db().get_draft(did)
+            if method == "openCapsuleETH":
+                sig = "openCapsuleETH(bytes32,uint64,uint64,uint64,uint32)"
+                types_ = ["bytes32", "uint64", "uint64", "uint64", "uint32"]
+                vals = [
+                    draft["content_hash_hex"],
+                    int(draft["final_earliest_at"]),
+                    int(draft["final_latest_at"]),
+                    int(draft["challenge_latest_at"]),
+                    int(draft["steward_quorum"]),
