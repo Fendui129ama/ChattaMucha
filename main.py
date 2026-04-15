@@ -340,3 +340,60 @@ def _workspace_root() -> Path:
 def _ui_dir() -> Path:
     return _workspace_root() / UI_DIRNAME
 
+
+def _db_path() -> Path:
+    return Path(__file__).resolve().parent / DB_FILENAME
+
+
+def _read_body(handler: http.server.BaseHTTPRequestHandler) -> bytes:
+    cl = handler.headers.get("Content-Length", "").strip()
+    if not cl:
+        return b""
+    n = _safe_int(cl, -1)
+    if n < 0 or n > MAX_BODY_BYTES:
+        _raise(413, "payload_too_large", f"Body too large (limit {MAX_BODY_BYTES} bytes)")
+    return handler.rfile.read(n)
+
+
+def _parse_json(body: bytes) -> Any:
+    if not body:
+        return None
+    try:
+        return json.loads(body.decode("utf-8"))
+    except Exception as e:
+        _raise(400, "bad_json", "Invalid JSON", error=str(e))
+
+
+def _send(handler: http.server.BaseHTTPRequestHandler, status: int, body: bytes, content_type: str) -> None:
+    handler.send_response(status)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def _send_json(handler: http.server.BaseHTTPRequestHandler, status: int, obj: Any) -> None:
+    _send(handler, status, _json_dumps(obj), JSON_CT)
+
+
+def _send_text(handler: http.server.BaseHTTPRequestHandler, status: int, text: str) -> None:
+    _send(handler, status, (text + "\n").encode("utf-8"), TEXT_CT)
+
+
+def _guess_ct(path: Path) -> str:
+    p = path.name.lower()
+    if p.endswith(".html"):
+        return "text/html; charset=utf-8"
+    if p.endswith(".css"):
+        return "text/css; charset=utf-8"
+    if p.endswith(".js"):
+        return "application/javascript; charset=utf-8"
+    if p.endswith(".json"):
+        return JSON_CT
+    if p.endswith(".svg"):
+        return "image/svg+xml"
+    if p.endswith(".png"):
+        return "image/png"
+    if p.endswith(".jpg") or p.endswith(".jpeg"):
+        return "image/jpeg"
