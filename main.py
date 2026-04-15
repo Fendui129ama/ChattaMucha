@@ -739,3 +739,60 @@ class ChattaMuchaHandler(http.server.BaseHTTPRequestHandler):
         except ApiError as e:
             self._handle_api_error(e)
         except Exception as e:
+            traceback.print_exc()
+            self._handle_unexpected(e)
+
+    def do_POST(self) -> None:
+        try:
+            path, qs = self._route()
+            if not path.startswith("/api/"):
+                _raise(404, "not_found", "Unknown endpoint")
+            body = _read_body(self)
+            data = _parse_json(body)
+            self._api_post(path, qs, data)
+        except ApiError as e:
+            self._handle_api_error(e)
+        except Exception as e:
+            traceback.print_exc()
+            self._handle_unexpected(e)
+
+    def _api_get(self, path: str, qs: Dict[str, str]) -> None:
+        if path == "/api/health":
+            _send_json(
+                self,
+                200,
+                {
+                    "ok": True,
+                    "app": APP_NAME,
+                    "at": _now_utc(),
+                    "ui_dir": str(_ui_dir()),
+                    "db_path": str(_db_path()),
+                    "python": sys.version,
+                    "features": FEATURES,
+                    "hashing": {"keccak_available": _try_web3_keccak(b"t") is not None},
+                },
+            )
+            return
+
+        if path == "/api/drafts":
+            limit = _safe_int(qs.get("limit"), 50)
+            _send_json(self, 200, {"ok": True, "drafts": self._db().list_drafts(limit=limit)})
+            return
+
+        if path == "/api/activity":
+            capsule_id = (qs.get("capsule_id") or "").strip()
+            if not capsule_id:
+                _raise(400, "bad_input", "capsule_id required")
+            limit = _safe_int(qs.get("limit"), 200)
+            _send_json(self, 200, {"ok": True, "items": self._db().list_activity(capsule_id=capsule_id, limit=limit)})
+            return
+
+        if path == "/api/config":
+            db = self._db()
+            cfg = {
+                "chain_id": _safe_int(db.kv_get("chain_id", str(DEFAULT_CHAIN_ID)), DEFAULT_CHAIN_ID),
+                "verifying_contract": db.kv_get("verifying_contract", DEFAULT_VERIFYING_CONTRACT) or DEFAULT_VERIFYING_CONTRACT,
+                "domain_salt_hex": db.kv_get("domain_salt_hex", DEFAULT_DOMAIN_SALT_HEX) or DEFAULT_DOMAIN_SALT_HEX,
+            }
+            cfg["verifying_contract_checksum"] = _checksum_address_if_possible(cfg["verifying_contract"])
+            _send_json(self, 200, {"ok": True, "config": cfg})
