@@ -625,3 +625,60 @@ def futurino_capsule_open_digest(
     type_str = (
         "CapsuleOpen(address owner,address asset,uint256 bounty,bytes32 contentHash,uint64 finalEarliestAt,uint64 finalLatestAt,uint64 challengeLatestAt,uint32 stewardQuorum,uint256 ownerNonce,uint256 chainId,address verifyingContract)"
     )
+    kind_t, typehash = _keccak_bytes_or_placeholder(type_str.encode("utf-8"))
+
+    types_ = [
+        "bytes32",
+        "address",
+        "address",
+        "uint256",
+        "bytes32",
+        "uint64",
+        "uint64",
+        "uint64",
+        "uint32",
+        "uint256",
+        "uint256",
+        "address",
+    ]
+    values_ = [
+        _bytes32_hex(typehash),
+        owner,
+        asset,
+        str(bounty),
+        content_hash_hex,
+        int(_u64(final_earliest_at, "final_earliest_at")),
+        int(_u64(final_latest_at, "final_latest_at")),
+        int(_u64(challenge_latest_at, "challenge_latest_at")),
+        int(_u32(steward_quorum, "steward_quorum")),
+        str(_u256(owner_nonce, "owner_nonce")),
+        str(_u256(chain_id, "chain_id")),
+        verifying_contract,
+    ]
+
+    enc = _abi_encode_struct(types_, values_)
+    kind_s, struct_hash = _keccak_bytes_or_placeholder(enc)
+
+    prefix = b"\x19\x01" + domain_salt + struct_hash
+    kind_d, digest = _keccak_bytes_or_placeholder(prefix)
+
+    # if keccak is missing, everything becomes a consistent placeholder — still useful for UI wiring
+    return {
+        "hash_kind": kind_d,
+        "typehash_kind": kind_t,
+        "structhash_kind": kind_s,
+        "typehash": _bytes32_hex(typehash),
+        "struct_hash": _bytes32_hex(struct_hash),
+        "digest": _bytes32_hex(digest),
+    }
+
+
+def compute_capsule_id(draft: Dict[str, Any], open_at: Optional[int] = None) -> Dict[str, Any]:
+    if open_at is None:
+        open_at = int(time.time())
+    packed = abi_encode_packed_capsule_id(
+        owner=str(draft["owner_address"]),
+        asset=str(draft["asset_address"]),
+        bounty_wei=str(draft["bounty_wei"]),
+        content_hash_hex=str(draft["content_hash_hex"]),
+        open_at=open_at,
