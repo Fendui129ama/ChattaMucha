@@ -511,3 +511,60 @@ def abi_encode_packed_capsule_id(
       address,address,uint256,bytes32,uint64,uint64,uint64,uint64,uint32
     """
     b_owner = _as_address_bytes(owner, "owner")
+    b_asset = _as_address_bytes(asset, "asset")
+    bounty = _u256(bounty_wei, "bounty_wei")
+    content = _as_bytes_exact(content_hash_hex, 32, "content_hash_hex")
+    o = _u64(open_at, "open_at")
+    fe = _u64(final_earliest_at, "final_earliest_at")
+    fl = _u64(final_latest_at, "final_latest_at")
+    cl = _u64(challenge_latest_at, "challenge_latest_at")
+    q = _u32(steward_quorum, "steward_quorum")
+    return b"".join(
+        [
+            b_owner,
+            b_asset,
+            _pack_uint(bounty, 32),
+            content,
+            _pack_uint(o, 8),
+            _pack_uint(fe, 8),
+            _pack_uint(fl, 8),
+            _pack_uint(cl, 8),
+            _pack_uint(q, 4),
+        ]
+    )
+
+
+def abi_encode_single(value: Any, typ: str, field: str) -> bytes:
+    """
+    Minimal ABI encoder for the fixed types used by Ox_Futurino callable methods.
+    Supported types: address, uint256, uint64, uint32, bytes32, bool
+    """
+    if typ == "address":
+        b = _as_address_bytes(str(value), field)
+        return b"\x00" * 12 + b
+    if typ == "uint256":
+        v = _u256(value, field)
+        return _pack_uint(v, 32)
+    if typ == "uint64":
+        v = _u64(value, field)
+        return _pack_uint(v, 32)  # ABI word
+    if typ == "uint32":
+        v = _u32(value, field)
+        return _pack_uint(v, 32)  # ABI word
+    if typ == "bytes32":
+        return _as_bytes_exact(str(value), 32, field)
+    if typ == "bool":
+        v = bool(value)
+        return _pack_uint(1 if v else 0, 32)
+    _raise(400, "codec_unsupported", f"Unsupported ABI type: {typ}", type=typ, field=field)
+    raise AssertionError("unreachable")
+
+
+def function_selector(signature: str) -> bytes:
+    kind, hx = _keccak_or_placeholder(signature.encode("utf-8"))
+    # if placeholder hashing is used, selector is not valid for EVM; we still show it clearly
+    return bytes.fromhex(hx)[:4], kind
+
+
+def encode_calldata(signature: str, arg_types: List[str], arg_values: List[Any]) -> Dict[str, Any]:
+    if len(arg_types) != len(arg_values):
