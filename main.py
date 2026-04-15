@@ -283,3 +283,60 @@ class Db:
             cur = self._conn.cursor()
             cur.execute("DELETE FROM capsule_drafts WHERE id = ?;", (draft_id,))
             self._conn.commit()
+        return d
+
+    def log(self, kind: str, capsule_id: str, payload: Dict[str, Any]) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO activity_log(at, kind, capsule_id, payload_json) VALUES (?, ?, ?, ?);",
+                (_now_utc(), kind, capsule_id, json.dumps(payload, ensure_ascii=False)),
+            )
+            self._conn.commit()
+
+    def list_activity(self, capsule_id: str, limit: int = 200) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(limit), 2000))
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT seq, at, kind, capsule_id, payload_json FROM activity_log WHERE capsule_id = ? ORDER BY seq DESC LIMIT ?;",
+                (capsule_id, limit),
+            )
+            rows = cur.fetchall()
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "seq": int(r["seq"]),
+                    "at": r["at"],
+                    "kind": r["kind"],
+                    "capsule_id": r["capsule_id"],
+                    "payload": json.loads(r["payload_json"] or "{}"),
+                }
+            )
+        return out
+
+    def kv_get(self, k: str, default: Optional[str] = None) -> Optional[str]:
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("SELECT v FROM app_kv WHERE k = ?;", (k,))
+            row = cur.fetchone()
+        if row is None:
+            return default
+        return str(row["v"])
+
+    def kv_set(self, k: str, v: str) -> None:
+        now = _now_utc()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("INSERT INTO app_kv(k, v, updated_at) VALUES (?, ?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=excluded.updated_at;", (k, v, now))
+            self._conn.commit()
+
+
+def _workspace_root() -> Path:
+    # this file lives at <root>/ChattaMucha/ChattaMucha.py
+    return Path(__file__).resolve().parents[1]
+
+
+def _ui_dir() -> Path:
+    return _workspace_root() / UI_DIRNAME
+
