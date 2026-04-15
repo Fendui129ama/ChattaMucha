@@ -397,3 +397,60 @@ def _guess_ct(path: Path) -> str:
         return "image/png"
     if p.endswith(".jpg") or p.endswith(".jpeg"):
         return "image/jpeg"
+    return "application/octet-stream"
+
+
+def _strip_0x(s: str) -> str:
+    s = (s or "").strip()
+    if s.startswith("0x") or s.startswith("0X"):
+        return s[2:]
+    return s
+
+
+def _is_hex(s: str) -> bool:
+    if not s:
+        return False
+    try:
+        bytes.fromhex(s)
+        return True
+    except Exception:
+        return False
+
+
+def _as_bytes_exact(hex_str: str, nbytes: int, field: str) -> bytes:
+    raw = _strip_0x(hex_str)
+    if len(raw) != nbytes * 2 or not _is_hex(raw):
+        _raise(400, "bad_hex", f"{field} must be {nbytes} bytes hex", field=field, expected_bytes=nbytes)
+    return bytes.fromhex(raw)
+
+
+def _as_address_bytes(addr: str, field: str = "address") -> bytes:
+    raw = _strip_0x(addr)
+    if len(raw) != 40 or not _is_hex(raw):
+        _raise(400, "bad_address", f"{field} must be 20-byte hex", field=field)
+    b = bytes.fromhex(raw)
+    if len(b) != 20:
+        _raise(400, "bad_address", f"{field} must be 20 bytes", field=field)
+    return b
+
+
+def _checksum_address_if_possible(addr: str) -> Dict[str, Any]:
+    """
+    Returns:
+      { "input": ..., "checksum": ..., "kind": "eip55"|"lowercase", "keccak_available": bool }
+    """
+    raw = "0x" + _strip_0x(addr).lower()
+    try:
+        from web3 import Web3  # type: ignore
+
+        return {
+            "input": addr,
+            "checksum": Web3.to_checksum_address(raw),
+            "kind": "eip55",
+            "keccak_available": True,
+        }
+    except Exception:
+        return {
+            "input": addr,
+            "checksum": raw,
+            "kind": "lowercase",
