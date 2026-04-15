@@ -1081,3 +1081,55 @@ class ChattaMuchaHandler(http.server.BaseHTTPRequestHandler):
         if target.is_dir():
             target = (target / "index.html").resolve()
         if not target.exists():
+            _raise(404, "not_found", "File not found", file=str(target))
+
+        data = target.read_bytes()
+        _send(self, 200, data, _guess_ct(target))
+
+
+class ChattaMuchaServer(http.server.ThreadingHTTPServer):
+    def __init__(self, server_address: Tuple[str, int], handler_cls: type) -> None:
+        super().__init__(server_address, handler_cls)
+        self.db = Db(_db_path())
+
+    def server_close(self) -> None:
+        with contextlib.suppress(Exception):
+            self.db.close()
+        super().server_close()
+
+
+def main(argv: List[str]) -> int:
+    host = _env_str("CHATTAMUCHA_HOST", DEFAULT_HOST)
+    port = _env_int("CHATTAMUCHA_PORT", DEFAULT_PORT)
+
+    ui = _ui_dir()
+    if not ui.exists():
+        print(f"[warn] UI folder missing at: {ui}")
+        print("[warn] I will still start the API; create ChowBueno/ next to the workspace root.")
+
+    srv = ChattaMuchaServer((host, port), ChattaMuchaHandler)
+    print(f"{APP_NAME} running at http://{host}:{port}/")
+    print("API health at /api/health")
+    print("Stop with Ctrl+C")
+
+    stop_event = threading.Event()
+
+    def _sigint(_signum: int, _frame: Any) -> None:
+        stop_event.set()
+        with contextlib.suppress(Exception):
+            srv.shutdown()
+
+    signal.signal(signal.SIGINT, _sigint)
+    if hasattr(signal, "SIGTERM"):
+        with contextlib.suppress(Exception):
+            signal.signal(signal.SIGTERM, _sigint)
+
+    try:
+        srv.serve_forever(poll_interval=0.25)
+    finally:
+        srv.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
