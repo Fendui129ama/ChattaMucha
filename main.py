@@ -1024,3 +1024,60 @@ class ChattaMuchaHandler(http.server.BaseHTTPRequestHandler):
                     int(draft["final_latest_at"]),
                     int(draft["challenge_latest_at"]),
                     int(draft["steward_quorum"]),
+                ]
+                r = encode_calldata(sig, types_, vals)
+                r["value_wei"] = str(draft["bounty_wei"])
+                _send_json(self, 200, {"ok": True, "draft_id": did, "method": method, "result": r})
+                return
+            if method == "openCapsuleToken":
+                token = str(data.get("token") or draft["asset_address"] or "").strip()
+                bounty = data.get("bounty_wei") or draft["bounty_wei"]
+                sig = "openCapsuleToken(address,uint256,bytes32,uint64,uint64,uint64,uint32)"
+                types_ = ["address", "uint256", "bytes32", "uint64", "uint64", "uint64", "uint32"]
+                vals = [
+                    token,
+                    str(bounty),
+                    draft["content_hash_hex"],
+                    int(draft["final_earliest_at"]),
+                    int(draft["final_latest_at"]),
+                    int(draft["challenge_latest_at"]),
+                    int(draft["steward_quorum"]),
+                ]
+                r = encode_calldata(sig, types_, vals)
+                _send_json(self, 200, {"ok": True, "draft_id": did, "method": method, "result": r})
+                return
+            _raise(400, "bad_input", "Unsupported method", method=method)
+
+        if path == "/api/activity/log":
+            if not isinstance(data, dict):
+                _raise(400, "bad_input", "JSON object expected")
+            capsule_id = str(data.get("capsule_id") or "").strip()
+            kind = str(data.get("kind") or "").strip()
+            payload = data.get("payload") or {}
+            if not capsule_id or not kind:
+                _raise(400, "bad_input", "capsule_id and kind required")
+            if not isinstance(payload, dict):
+                _raise(400, "bad_input", "payload must be object")
+            self._db().log(kind, capsule_id, payload)
+            _send_json(self, 200, {"ok": True})
+            return
+
+        _raise(404, "not_found", "Unknown endpoint", path=path)
+
+    def _serve_ui(self, path: str) -> None:
+        ui = _ui_dir()
+        if not ui.exists():
+            _send_text(self, 404, f"UI directory missing: {ui}")
+            return
+
+        if path == "/" or path == "":
+            path = "/index.html"
+
+        # prevent path traversal
+        rel = path.lstrip("/")
+        target = (ui / rel).resolve()
+        if ui not in target.parents and target != ui:
+            _raise(403, "forbidden", "Path traversal blocked")
+        if target.is_dir():
+            target = (target / "index.html").resolve()
+        if not target.exists():
